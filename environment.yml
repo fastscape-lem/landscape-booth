@@ -1,0 +1,10 @@
+name: lndw2023
+channels:
+  - conda-forge
+dependencies:
+  - python
+  - numpy
+  - opencv
+  - ipywebrtc
+  - jupyterlab=3
+  - fastscapelib-f2py
