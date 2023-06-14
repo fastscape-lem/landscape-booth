@@ -1,0 +1,1 @@
+from .booth import LEMBooth

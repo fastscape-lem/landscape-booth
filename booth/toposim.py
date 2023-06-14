@@ -8,7 +8,7 @@ import fastscapelib_fortran as fs
 
 class TopographySimulator:
 
-    def __init__(self, shape=(240, 240), length=(5e4, 5e4)):
+    def __init__(self, shape=(240, 240), length=(5e4, 5e4), cmap=plt.cm.terrain):
         self.shape = np.array(shape)
         self.length = np.array(length)
         self.spacing = self.length / (self.shape - 1)
@@ -16,7 +16,7 @@ class TopographySimulator:
         # shaded relief
         self.cycle_length = 300
         self.cycle_start = 0.3
-        self.cmap = plt.cm.terrain
+        self.cmap = cmap
 
     def get_sun_light(self):
         t = self.step + self.cycle_start * self.cycle_length
@@ -40,6 +40,10 @@ class TopographySimulator:
         #scarp_row_idx = self.shape[0] // 2
         ua = np.zeros_like(self.topography)
         ua[:] = u
+        ua2d = ua.reshape(self.shape)
+        ua2d[[0, -1]] = 0.0
+        ua2d[:, [0, -1]] = 0.0
+
         fs.fastscape_set_u(ua)
 
     def initialize(self):
@@ -93,14 +97,15 @@ class TopographySimulator:
     def shaded_topography(self):
         dx, dy = self.spacing
 
-        ls = LightSource(*self.get_sun_light())
+        ls = LightSource()
+        #ls = LightSource(*self.get_sun_light())
 
-        vmax=max(500, self.topography.max())
+        vmax=max(5000, self.topography.max())
 
         rgb = ls.shade(
             self.topography, cmap=self.cmap,
             blend_mode='overlay', vert_exag=4,
-            dx=dx, dy=dy, vmin=-300, vmax=vmax
+            dx=dx, dy=dy, vmin=0, vmax=vmax
         )
 
         return rgb * 255
