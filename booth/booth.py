@@ -1,4 +1,5 @@
 import io
+import os
 import time
 from threading import Thread
 
@@ -8,8 +9,17 @@ import pooch
 import matplotlib.pyplot as plt
 from skimage import filters
 from ipycanvas import MultiCanvas, hold_canvas
-from ipywidgets import (Button, FloatSlider, IntSlider, HTML, Label,
-                        HBox, VBox, Layout)
+from ipywidgets import (
+    Button,
+    FloatSlider,
+    IntSlider,
+    HTML,
+    Label,
+    HBox,
+    VBox,
+    Layout,
+    Text,
+)
 from ipywebrtc import CameraStream, ImageRecorder
 
 from .toposim import TopographySimulator
@@ -23,6 +33,17 @@ file_path = pooch.retrieve(
 face_cascade = cv2.CascadeClassifier(file_path)
 
 
+def uniquify(path):
+    filename, extension = os.path.splitext(path)
+    counter = 1
+
+    while os.path.exists(path):
+        path = filename + " (" + str(counter) + ")" + extension
+        counter += 1
+
+    return path
+
+
 class LEMBooth:
 
     def __init__(
@@ -32,14 +53,19 @@ class LEMBooth:
         single_flow=False,
         snapshot=False,
         cmap=plt.cm.terrain,
+        grid_size=240,
     ):
         self.scale = scale
         self.particles = particles
         self.single_flow = single_flow
         self.snapshot = snapshot
+        self.grid_size = grid_size
         self.take_snapshot = False
+        self.save = False
 
-        self.toposim = TopographySimulator(cmap=cmap)
+        self.toposim = TopographySimulator(
+            shape=(grid_size, grid_size), cmap=cmap
+        )
         self.u_rate = np.zeros(self.toposim.shape)
         
         if self.particles:
@@ -50,12 +76,14 @@ class LEMBooth:
         if self.particles:
             self.setup_particles_widgets()
         self.setup_toposim_widgets()
+        self.setup_save_widgets()
         self.setup_layout()
 
         self.process = None
         self._running = False
         self._step = 0
         self._snapshot_step = 0
+        self._save_step = 0
         
         self.camera = CameraStream(
             constraints={
@@ -77,6 +105,12 @@ class LEMBooth:
             height=self.scale * self.toposim.shape[1],
         )
         self.canvas.on_client_ready(self.redraw)
+        
+        # prevent error when saving snapshot to file
+        # for the 1st time (no image data)
+        self.canvas.sync_image_data = True
+        time.sleep(0.1)
+        self.canvas.sync_image_data = False
 
     def setup_play_widgets(self):
         self.play_widgets = {
@@ -94,7 +128,7 @@ class LEMBooth:
         
         if self.snapshot:
             self.play_widgets['snapshot'] = Button(
-                description="Take Snapshot!", disabled=True, icon='fa-camera'
+                description="Take Picture!", disabled=True, icon='fa-camera'
             )
             self.play_widgets['snapshot'].on_click(self.click_snapshot)
 
@@ -160,82 +194,17 @@ class LEMBooth:
                 readout_format='.1f'
             )
         }
-
-    def set_erosion_params(self):
-        if self.single_flow:
-            p = 10
-            g = 0
-        else:
-            p = self.toposim_widgets['p'].value
-            g = self.toposim_widgets['g'].value
-
-        self.toposim.set_erosion_params(
-            kf=self.toposim_widgets['kf'].value,
-            g=g,
-            kd=self.toposim_widgets['kd'].value,
-            p=p,
-            u=self.toposim_widgets['u'].value * self.u_rate
+    
+    def setup_save_widgets(self):
+        self.save_text = Text(placeholder="filename without extension")
+        self.save_button = Button(
+            description="Snapshot to file", disabled=True, icon='fa-file-image'
         )
-    
-    def capture_and_process_image(self):
-        self.image_recorder.recording = False
-        self.image_recorder.recording = True
-        raw_img = self.image_recorder.image.value
-        if not len(raw_img) or raw_img is None:
-            time.sleep(0.1)
-            self.capture_and_process_image()
-            return
+        self.save_button.on_click(self.on_save)
         
-        self._snapshot_step = self._step
+    def on_save(self, b):
+        self.save = True
 
-        arr = np.asarray(self.image_recorder.image.value, np.uint8)
-        img_np = cv2.imdecode(arr, cv2.IMREAD_COLOR)
-        
-        # assume webcam format 640x480 and LEM grid 240x240
-        # TODO: get LEM grid shape dynamically
-        img_resized = cv2.resize(img_np, [320, 240])[:, 40:40+240]
-
-        gray = cv2.cvtColor(img_resized, cv2.COLOR_BGR2GRAY)
-
-        # Face detection
-        faces = face_cascade.detectMultiScale(gray, 1.1, 4)
-
-        # Process only one face
-        if len(faces) != 1:
-            return None
-
-        # Pad rectangle
-        pad_xy = 20, 35
-        rect = faces[0]
-        rect[0] -= pad_xy[0]
-        rect[1] -= pad_xy[1]
-        rect[2] += pad_xy[0]
-        rect[3] += pad_xy[1]
-
-        # two passes grabcut for background delineation
-        mask = np.zeros(img_resized.shape[:2], dtype=np.uint8)
-        mask2 = np.zeros(img_resized.shape[:2], dtype=np.uint8)
-        bgd_model = np.zeros((1, 65), np.float64)
-        fgd_model = np.zeros((1, 65), np.float64)
-        cv2.grabCut(img_resized, mask, rect, bgd_model, fgd_model, 1, cv2.GC_INIT_WITH_RECT)
-        cv2.grabCut(img_resized, mask, None, bgd_model, fgd_model, 1, cv2.GC_INIT_WITH_MASK)
-
-        mask = np.where((mask == cv2.GC_PR_BGD) | (mask == cv2.GC_BGD), 0, 1).astype('uint8')
-        masked = gray * mask
-        
-        self.image_to_uplift_rate(masked)
-    
-    def image_to_uplift_rate(self, im):
-        sobel = filters.sobel(im)
-        if self.snapshot:
-            self.u_rate = im / 255.0 * sobel
-        else:
-            self.u_rate = 0.2 * self.u_rate + 0.8 * im / 255.0 * sobel
-    
-    def hold_uplift_or_relax(self):
-        if self._step == self._snapshot_step + 40:
-            self.u_rate[:] = 0.0
-        
     def setup_layout(self):
         labels_boxes = []
 
@@ -272,6 +241,12 @@ class LEMBooth:
         toposim_box = VBox(toposim_hboxes)
         toposim_box.layout = Layout(grid_gap='6px')
         labels_boxes += [toposim_label, toposim_box]
+        
+        save_label = HTML(
+            value='<b>Take snapshot and save to file</b>'
+        )
+        save_box = HBox([self.save_text, self.save_button])
+        labels_boxes += [save_label, save_box]
 
         control_box = VBox(labels_boxes)
         control_box.layout = Layout(grid_gap='10px')
@@ -279,6 +254,94 @@ class LEMBooth:
         self.main_box = HBox((self.canvas, control_box))
         self.main_box.layout = Layout(grid_gap='30px')
 
+    def set_erosion_params(self):
+        if self.single_flow:
+            p = 10
+            g = 0
+        else:
+            p = self.toposim_widgets['p'].value
+            g = self.toposim_widgets['g'].value
+
+        self.toposim.set_erosion_params(
+            kf=self.toposim_widgets['kf'].value,
+            g=g,
+            kd=self.toposim_widgets['kd'].value,
+            p=p,
+            u=self.toposim_widgets['u'].value * self.u_rate
+        )
+    
+    def capture_and_process_image(self):
+        self.image_recorder.recording = False
+        self.image_recorder.recording = True
+        raw_img = self.image_recorder.image.value
+        if not len(raw_img) or raw_img is None:
+            #time.sleep(0.1)
+            #self.capture_and_process_image()
+            return
+        
+        self._snapshot_step = self._step
+
+        arr = np.asarray(self.image_recorder.image.value, np.uint8)
+        img_np = cv2.imdecode(arr, cv2.IMREAD_COLOR)
+        
+        # crop and resize from webcam 640x480 (4:3)
+        # to LEM grid grid_size x grid_size (1:1)
+        width = int(self.grid_size * 4 / 3)
+        height = self.grid_size
+        offset = (width - height) // 2
+        img_resized = cv2.resize(img_np, [width, height])[:, offset:offset+height]
+
+        gray = cv2.cvtColor(img_resized, cv2.COLOR_BGR2GRAY)
+
+        # Face detection
+        faces = face_cascade.detectMultiScale(gray, 1.1, 4)
+
+        # Process only one face
+        if len(faces) != 1:
+            return None
+
+        # Pad rectangle
+        pad_xy = 20, 35
+        rect = faces[0]
+        rect[0] -= pad_xy[0]
+        rect[1] -= pad_xy[1]
+        rect[2] += pad_xy[0]
+        rect[3] += pad_xy[1]
+
+        # two passes grabcut for background delineation
+        mask = np.zeros(img_resized.shape[:2], dtype=np.uint8)
+        mask2 = np.zeros(img_resized.shape[:2], dtype=np.uint8)
+        bgd_model = np.zeros((1, 65), np.float64)
+        fgd_model = np.zeros((1, 65), np.float64)
+        try:
+            cv2.grabCut(img_resized, mask, rect, bgd_model, fgd_model, 1, cv2.GC_INIT_WITH_RECT)
+            cv2.grabCut(img_resized, mask, None, bgd_model, fgd_model, 1, cv2.GC_INIT_WITH_MASK)
+        except Exception:
+            # TODO: https://stackoverflow.com/questions/7546083/grabcut-bgdmodel-fgdmodel-empty-assertion-error
+            return
+
+        mask = np.where((mask == cv2.GC_PR_BGD) | (mask == cv2.GC_BGD), 0, 1).astype('uint8')
+        masked = gray * mask
+        
+        self.image_to_uplift_rate(masked)
+    
+    def image_to_uplift_rate(self, im):
+        sobel = filters.sobel(im)
+        if self.snapshot:
+            self.u_rate = im / 255.0 * sobel
+        else:
+            self.u_rate = 0.2 * self.u_rate + 0.8 * im / 255.0 * sobel
+    
+    def hold_uplift_or_relax(self):
+        if self._step == self._snapshot_step + 40:
+            self.u_rate[:] = 0.0
+    
+    def save_canvas(self):
+        if not os.path.exists('snapshots'):
+            os.makedirs('snapshots')
+        path = uniquify(f"snapshots/{self.save_text.value}.png")
+        self.canvas.to_file(path)
+    
     def initialize(self):
         self.toposim.initialize()
         
@@ -289,6 +352,15 @@ class LEMBooth:
 
     def run(self):
         while self._running:
+            if self.save:
+                if self._save_step == self._step:
+                    self.save_canvas()
+                    self.save = False
+                    self.canvas.sync_image_data = False
+                else:
+                    self.canvas.sync_image_data = True
+                    self._save_step = self._step + 1
+
             if self.snapshot:
                 if self.take_snapshot:
                     self.capture_and_process_image()
@@ -299,7 +371,6 @@ class LEMBooth:
                 self.capture_and_process_image()
 
             self.set_erosion_params()
-
             self.toposim.run_step()
             
             if self.particles:
@@ -314,6 +385,8 @@ class LEMBooth:
     def toggle_disabled(self):
         for w in self.play_widgets.values():
             w.disabled = not w.disabled
+            
+        self.save_button.disabled = not self.save_button.disabled
 
         if self.particles:
             w = self.particles_widgets['size']
