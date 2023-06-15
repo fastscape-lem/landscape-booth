@@ -50,6 +50,7 @@ class LEMBooth:
         self,
         scale=3,
         particles=True,
+        particles_color="black",
         single_flow=False,
         snapshot=False,
         cmap=plt.cm.terrain,
@@ -57,10 +58,11 @@ class LEMBooth:
     ):
         self.scale = scale
         self.particles = particles
+        self.particles_color = particles_color
         self.single_flow = single_flow
         self.snapshot = snapshot
         self.grid_size = grid_size
-        self.take_snapshot = False
+        self.record = False
         self.save = False
 
         self.toposim = TopographySimulator(
@@ -93,7 +95,7 @@ class LEMBooth:
             },
         )
         self.image_recorder = ImageRecorder(stream=self.camera)
-        self.image_recorder.recording = True
+        self.image_recorder.recording = False
 
     def setup_canvas(self):
         # canvas 0: topography
@@ -122,15 +124,17 @@ class LEMBooth:
         self.play_widgets['start'].on_click(self.start)
         self.play_widgets['stop'].on_click(self.stop)
         
-        if self.particles:
-            self.play_widgets['reset_particle'] = Button(description="Reset particle", disabled=True)
-            self.play_widgets['reset_particle'].on_click(self.reset_particle) # this doesn't work
-        
         if self.snapshot:
-            self.play_widgets['snapshot'] = Button(
-                description="Take Picture!", disabled=True, icon='fa-camera'
-            )
-            self.play_widgets['snapshot'].on_click(self.click_snapshot)
+            snapshot_desc = "Take picture"
+            snapshot_icon = "fa-camera"
+        else:
+            snapshot_desc = "Record"
+            snapshot_icon = "fa-video"
+        
+        self.play_widgets['snapshot'] = Button(
+            description=snapshot_desc, disabled=True, icon=snapshot_icon
+        )
+        self.play_widgets['snapshot'].on_click(self.click_snapshot)
 
     def setup_particles_widgets(self):
         self.particles_labels = {
@@ -162,7 +166,18 @@ class LEMBooth:
         self.particles.speed_factor = change.new
     
     def click_snapshot(self, b):
-        self.take_snapshot = True
+        if self.snapshot:
+            self.record = True
+        else:
+            # toggle
+            self.record = not self.record
+            
+            if self.record:
+                self.play_widgets['snapshot'].description = "Stop record"
+                self.play_widgets['snapshot'].icon = "fa-video-slash"
+            else:
+                self.play_widgets['snapshot'].description = "Record"
+                self.play_widgets['snapshot'].icon = "fa-video"
 
     def setup_toposim_widgets(self):
         self.toposim_labels = {
@@ -275,9 +290,7 @@ class LEMBooth:
         self.image_recorder.recording = True
         raw_img = self.image_recorder.image.value
         if not len(raw_img) or raw_img is None:
-            #time.sleep(0.1)
-            #self.capture_and_process_image()
-            return
+            return False
         
         self._snapshot_step = self._step
 
@@ -298,7 +311,7 @@ class LEMBooth:
 
         # Process only one face
         if len(faces) != 1:
-            return None
+            return False
 
         # Pad rectangle
         pad_xy = 20, 35
@@ -318,12 +331,14 @@ class LEMBooth:
             cv2.grabCut(img_resized, mask, None, bgd_model, fgd_model, 1, cv2.GC_INIT_WITH_MASK)
         except Exception:
             # TODO: https://stackoverflow.com/questions/7546083/grabcut-bgdmodel-fgdmodel-empty-assertion-error
-            return
+            return False
 
         mask = np.where((mask == cv2.GC_PR_BGD) | (mask == cv2.GC_BGD), 0, 1).astype('uint8')
         masked = gray * mask
         
         self.image_to_uplift_rate(masked)
+        
+        return True
     
     def image_to_uplift_rate(self, im):
         sobel = filters.sobel(im)
@@ -331,6 +346,16 @@ class LEMBooth:
             self.u_rate = im / 255.0 * sobel
         else:
             self.u_rate = 0.2 * self.u_rate + 0.8 * im / 255.0 * sobel
+    
+    def capture_and_process_image_retry(self, n=1):
+        for _ in range(n):
+            success = self.capture_and_process_image()
+            if success:
+                return True
+            else:
+                time.sleep(0.05)
+        
+        return False
     
     def hold_uplift_or_relax(self):
         if self._step == self._snapshot_step + 40:
@@ -361,14 +386,16 @@ class LEMBooth:
                     self.canvas.sync_image_data = True
                     self._save_step = self._step + 1
 
-            if self.snapshot:
-                if self.take_snapshot:
-                    self.capture_and_process_image()
-                    self.take_snapshot = False
-                else:
-                    self.hold_uplift_or_relax()
+            if self.record:
+                success = self.capture_and_process_image_retry()
+                self.image_recorder.recording = False
+                if self.snapshot:
+                    #if not success:
+                    #    # avoid capturing old image
+                    #    self.u_rate[:] = 0.0
+                    self.record = False
             else:
-                self.capture_and_process_image()
+                self.hold_uplift_or_relax()
 
             self.set_erosion_params()
             self.toposim.run_step()
@@ -403,13 +430,17 @@ class LEMBooth:
         self.process.join()
         self.reset()
         self.toggle_disabled()
-        self.take_snapshot = False
+        self.record = False
+        self.image_recorder.recording = False
 
     def reset_particle(self, b):
         self.particles.reset()
         
     def reset(self):
         self._step = 0
+        self._snapshot_step = 0
+        self._save_step = 0
+        self.u_rate[:] = 0.0
 
         self.toposim.reset()
         
@@ -443,7 +474,7 @@ class LEMBooth:
         with hold_canvas(self.canvas[1]):
             self.canvas[1].clear()
             self.canvas[1].global_alpha = 0.25
-            self.canvas[1].fill_style = '#000000'
+            self.canvas[1].fill_style = self.particles_color
             self.canvas[1].fill_rects(x, y, self.particles.sizes)
 
     def show(self):

@@ -3,7 +3,13 @@ import numpy as np
 
 class Particles:
 
-    def __init__(self, toposim, scale, n_particles=13000, speed_factor=0.9):
+    def __init__(
+        self,
+        toposim,
+        scale,
+        n_particles=13000,
+        speed_factor=0.9
+    ):
         self.n_particles = n_particles
         self.toposim = toposim
         self.shape = toposim.shape
