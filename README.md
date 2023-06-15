@@ -76,7 +76,4 @@ Despite we did our best to make it stable, it is possible that the booth crashes
 - Press again on the ``(Stop) Record`` (booth 1) or ``Take picture`` (booth 2) button on the top right (sometimes the face detection algorithm fails)
 - ``Stop / Reset`` and ``Start`` again the simulation
 - Restart the Kernel and re-run the notebook (when in JupyterLab)
-<<<<<<< HEAD
-- Refresh the web-browser tab (Voila or JupyterLab)
-=======
 - Refresh the web-browser tab (Voila or JupyterLab)
