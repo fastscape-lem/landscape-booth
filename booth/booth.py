@@ -107,12 +107,6 @@ class LEMBooth:
             height=self.scale * self.toposim.shape[1],
         )
         self.canvas.on_client_ready(self.redraw)
-        
-        # prevent error when saving snapshot to file
-        # for the 1st time (no image data)
-        self.canvas.sync_image_data = True
-        time.sleep(0.1)
-        self.canvas.sync_image_data = False
 
     def setup_play_widgets(self):
         self.play_widgets = {
@@ -285,12 +279,16 @@ class LEMBooth:
             u=self.toposim_widgets['u'].value * self.u_rate
         )
     
-    def capture_and_process_image(self):
+    def capture_and_process_image(self, retry=True):
         self.image_recorder.recording = False
         self.image_recorder.recording = True
         raw_img = self.image_recorder.image.value
         if not len(raw_img) or raw_img is None:
-            return False
+            time.sleep(0.2)
+            if retry:
+                return self.capture_and_process_image(retry=False)
+            else:
+                return False
         
         self._snapshot_step = self._step
 
@@ -457,6 +455,10 @@ class LEMBooth:
         
         if self.particles:
             self.draw_particles()
+        else:
+            # prevent front-end undefined canvas
+            # when run with voila
+            self.draw_particles_dummy()
         
     def draw_topography(self):
         with hold_canvas(self.canvas[0]):
@@ -476,6 +478,10 @@ class LEMBooth:
             self.canvas[1].global_alpha = 0.25
             self.canvas[1].fill_style = self.particles_color
             self.canvas[1].fill_rects(x, y, self.particles.sizes)
+
+    def draw_particles_dummy(self):
+        with hold_canvas(self.canvas[1]):
+            self.canvas[1].clear()
 
     def show(self):
         self.initialize()
