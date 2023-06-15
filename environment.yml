@@ -4,7 +4,13 @@ channels:
 dependencies:
   - python
   - numpy
+  - matplotlib-base
   - opencv
+  - ipywidgets
   - ipywebrtc
+  - ipycanvas
   - jupyterlab=3
   - fastscapelib-f2py
+  - pooch
+  - voila
+  - scikit-image
