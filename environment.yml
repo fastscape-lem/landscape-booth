@@ -13,3 +13,4 @@ dependencies:
   - fastscapelib-f2py
   - pooch
   - voila
+  - scikit-image
