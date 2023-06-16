@@ -12,7 +12,7 @@ https://www.langenachtderwissenschaften.de/
 
 ## Installation
 
-1. clone the git repository (you will need your GFZ username and *domain* password):
+1. clone the git repository (you will need your GFZ username and *master* password):
 
 ```
 git clone https://git.gfz-potsdam.de/sec47/lndw2023
