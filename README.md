@@ -14,16 +14,16 @@ https://www.langenachtderwissenschaften.de/
 
 ## Installation
 
-1. clone the git repository (you will need your GFZ username and *master* password):
+1. clone the git repository:
 
 ```
-git clone https://git.gfz-potsdam.de/sec47/lndw2023
+git clone https://github/fastscape-lem/landscape-booth
 ```
 
 2. cd into the cloned repository:
 
 ```
-cd lndw2023
+cd landscape-booth
 ```
 
 3. Create a new conda envrionment using `conda` or `mamba`:
@@ -35,7 +35,7 @@ mamba create --file environment.yml
 4. Activate the environment:
 
 ```
-conda activate lndw2023
+conda activate landscape-booth
 ```
 
 ## Run the Booth
