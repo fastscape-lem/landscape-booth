@@ -1,4 +1,4 @@
-name: lndw2023
+name: landscape-booth
 channels:
   - conda-forge
 dependencies:
