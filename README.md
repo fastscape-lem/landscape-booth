@@ -1,8 +1,10 @@
 # Landscape Booth - LNDW 2023
 
-Repository for GFZ section 4.7's contribution to the Long Night of Sciences LNDW 2023.
+Repository for GFZ section 4.7's contribution to the Long Night of Sciences LNDW 2023: a live photo booth with a fancy "landscape evolution" filter.
 
 https://www.langenachtderwissenschaften.de/
+
+![booth1](https://github.com/fastscape-lem/landscape-booth/assets/4160723/41eb1be3-a658-446a-9926-20660aa5309a)
 
 ## Booth variants
 
